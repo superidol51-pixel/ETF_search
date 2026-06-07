@@ -1,0 +1,877 @@
+```html id="z4wdy2"
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+
+<meta charset="UTF-8">
+
+<title>CTBC ETF 查詢工具</title>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+<style>
+
+body{
+    font-family: Arial;
+    margin:30px;
+}
+
+h2{
+    margin-bottom:20px;
+}
+
+input, select{
+    padding:6px;
+    margin-right:15px;
+}
+
+button{
+    padding:8px 20px;
+    cursor:pointer;
+}
+
+table{
+    border-collapse: collapse;
+    width:100%;
+    margin-top:20px;
+}
+
+th, td{
+    border:1px solid #ccc;
+    padding:8px;
+    text-align:center;
+}
+
+th{
+    background:#f0f0f0;
+}
+
+.info-box{
+    margin-top:20px;
+    margin-bottom:20px;
+    line-height:1.8;
+}
+
+.loading{
+    color:blue;
+    margin-top:20px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+
+
+
+<h2>CTBC ETF 查詢工具</h2>
+
+<div style="margin-bottom:15px;">
+
+<button onclick="showTab('etf')">
+ETF分析
+</button>
+
+<button onclick="showTab('stock')">
+個股分析
+</button>
+
+</div>
+
+
+
+
+<div id="etfPanel">
+
+<label>ETF：</label>
+
+<select id="fid">
+
+    <option value="E0017">00891 半導體ETF</option>
+    <option value="E0018">00894 小資高價30ETF</option>
+    <option value="E0019">00896 綠能電動車ETF</option>
+    <option value="E0021">00912 智慧50ETF</option>
+    <option value="E0023">00928 上櫃ESG30ETF</option>
+    <option value="E0024">00934 優選成長高股息ETF</option>
+    <option value="E0031">00964 亞太高股息ETF</option>
+    <option value="E0034">00983A ARK創新主動ETF</option>
+    <option value="E0035">00981D 非投等債主動ETF</option>
+    <option value="E0036">00995A 台灣卓越成長主動ETF</option>
+
+</select>
+
+<label>起始日期：</label>
+<input type="date" id="startDate">
+
+<label>結束日期：</label>
+<input type="date" id="endDate">
+
+<button onclick="fetchETF()">開始查詢</button>
+
+</div>
+
+
+
+
+<button onclick="exportExcel()">匯出Excel</button>
+
+
+
+<div
+    id="stockPanel"
+    style="display:none">
+
+<label>股票：</label>
+
+<input
+    id="targetStock"
+    placeholder="2330 或 台灣積體電路製造">
+
+<label>起始日期：</label>
+<input type="date" id="stockStartDate">
+
+<label>結束日期：</label>
+<input type="date" id="stockEndDate">
+
+<button onclick="fetchStock()">
+開始查詢
+</button>
+
+</div>
+
+
+
+<div class="loading" id="loading"></div>
+
+<div class="info-box" id="etfInfo"></div>
+
+<table id="resultTable"></table>
+
+<script>
+
+const URL =
+"https://www.ctbcinvestments.com.tw/API/etf/ETFHoldingWeight?token=5EMG0bfktg%2FRHPRZHo%2BvaRPQQ0byiFhir42i0plcHTDRRVMy%2Bko%2B%2FPBQXOZyi243MTY0MzkyMTkyNjUyNjY4OA%3D%3D024";
+
+const TOKEN =
+"5EMG0bfktg/RHPRZHo+vaRPQQ0byiFhir42i0plcHTDRRVMy+ko+/PBQXOZyi243MTY0MzkyMTkyNjUyNjY4OA==024";
+
+
+
+const ETF_LIST = {
+
+    "E0017":"00891",
+    "E0018":"00894",
+    "E0019":"00896",
+    "E0021":"00912",
+    "E0023":"00928",
+    "E0024":"00934",
+    "E0031":"00964",
+    "E0035":"00981D",
+    "E0034":"00983A",
+    "E0036":"00995A"
+
+};
+
+
+
+let currentTableHTML = "";
+
+async function fetchETF(){
+
+    const FID = document.getElementById("fid").value;
+
+    let START_DATE =
+        document.getElementById("startDate").value;
+
+    let END_DATE =
+        document.getElementById("endDate").value;
+
+    if(!START_DATE || !END_DATE){
+
+        alert("請輸入日期");
+
+        return;
+    }
+
+    const today =
+        new Date().toISOString().split("T")[0];
+
+    START_DATE = START_DATE > today ? today : START_DATE;
+
+    END_DATE = END_DATE > today ? today : END_DATE;
+
+    if(START_DATE > END_DATE){
+
+        alert("結束日期不能早於起始日期");
+
+        return;
+    }
+
+    document.getElementById("loading").innerText =
+        "查詢中...";
+
+    let current = new Date(START_DATE);
+
+    const end = new Date(END_DATE);
+
+    let allData = {};
+
+    let stockOrder = [];
+
+    let startAsset = 0;
+
+    let endAsset = 0;
+
+    let etfInfo = {};
+
+    while(current <= end){
+
+        const dateStr =
+            current.toISOString().split("T")[0];
+
+        console.log("抓取:", dateStr);
+
+        const payload = {
+
+            FID:FID,
+
+            StartDate:
+                dateStr + "T00:00:00.000Z",
+
+            token:TOKEN
+        };
+
+        try{
+
+            const response = await fetch(URL,{
+
+                method:"POST",
+
+                headers:{
+                    "Content-Type":"application/json"
+                },
+
+                body:JSON.stringify(payload)
+            });
+
+            if(!response.ok){
+
+                current.setDate(current.getDate()+1);
+
+                continue;
+            }
+
+            const result = await response.json();
+
+            const fundInfo =
+                result.Data.Fund[0];
+
+            const fundAssets =
+                result.Data.FundAssets[0];
+
+            const asset = parseFloat(
+                fundAssets["基金淨資產"]
+                .replace(/,/g,"")
+            );
+
+            if(startAsset === 0){
+
+                startAsset = asset;
+            }
+
+            endAsset = asset;
+
+            etfInfo = {
+
+                ETF_ID: fundInfo["ETF_ID"],
+
+                FID: fundInfo["FID"],
+
+                FundName: fundInfo["FundName"],
+
+                StartAsset: startAsset,
+
+                EndAsset: endAsset,
+
+                ChangeAsset:
+                    endAsset - startAsset
+            };
+
+            const sections =
+                result.Data.FundAssetsDetail;
+
+            let stockSection = null;
+
+            for(const item of sections){
+
+                if(item.Code === "STOCK"){
+
+                    stockSection = item;
+
+                    break;
+                }
+            }
+
+            if(!stockSection){
+
+                current.setDate(current.getDate()+1);
+
+                continue;
+            }
+
+            let daily = {};
+
+            for(const stock of stockSection.Data){
+
+                const name = stock.name_;
+
+                const qty = parseFloat(
+                    stock.qty_.replace(/,/g,"")
+                );
+
+                const lots =
+                    +(qty / 1000).toFixed(2);
+
+                daily[name] = lots;
+
+                if(!stockOrder.includes(name)){
+
+                    stockOrder.push(name);
+                }
+            }
+
+            allData[dateStr] = daily;
+
+        }catch(err){
+
+            console.log(err);
+        }
+
+        const sleep =
+            Math.random()*2000 + 1000;
+
+        await new Promise(r=>setTimeout(r,sleep));
+
+        current.setDate(current.getDate()+1);
+    }
+
+    buildTable(allData, stockOrder, etfInfo);
+
+    document.getElementById("loading").innerText =
+        "完成";
+}
+
+function buildTable(allData, stockOrder, etfInfo){
+
+    const dates = Object.keys(allData);
+
+    let html = "";
+
+    html += "<tr>";
+
+    html += "<th>股票名稱</th>";
+
+    for(const d of dates){
+
+        html += `<th>${d}</th>`;
+    }
+
+    html += "<th>增減張數</th>";
+
+    html += "</tr>";
+
+    for(const stock of stockOrder){
+
+        html += `<tr><td>${stock}</td>`;
+
+        const first =
+            allData[dates[0]][stock] || 0;
+
+        const last =
+            allData[dates[dates.length-1]][stock] || 0;
+
+        for(const d of dates){
+
+            const val =
+                allData[d][stock] || 0;
+
+            html += `<td>${val}</td>`;
+        }
+
+        const diff =
+            +(last - first).toFixed(2);
+
+        html += `<td>${diff}</td>`;
+
+        html += "</tr>";
+    }
+
+    currentTableHTML = html;
+
+    document.getElementById("resultTable").innerHTML =
+        html;
+
+    document.getElementById("etfInfo").innerHTML = `
+
+        <b>ETF_ID：</b>${etfInfo.ETF_ID}<br>
+
+        <b>FID：</b>${etfInfo.FID}<br>
+
+        <b>FundName：</b>${etfInfo.FundName}<br>
+
+        <b>起始基金淨資產：</b>
+        ${etfInfo.StartAsset.toLocaleString()}<br>
+
+        <b>結束基金淨資產：</b>
+        ${etfInfo.EndAsset.toLocaleString()}<br>
+
+        <b>基金淨資產變化：</b>
+        ${etfInfo.ChangeAsset.toLocaleString()}
+    `;
+}
+
+
+
+function showTab(mode){
+
+    if(mode === "etf"){
+
+        document.getElementById(
+            "etfPanel"
+        ).style.display = "block";
+
+        document.getElementById(
+            "stockPanel"
+        ).style.display = "none";
+    }
+
+    else{
+
+        document.getElementById(
+            "etfPanel"
+        ).style.display = "none";
+
+        document.getElementById(
+            "stockPanel"
+        ).style.display = "block";
+    }
+}
+
+
+
+
+async function fetchStock(){
+
+    const targetStock =
+        document.getElementById(
+            "targetStock"
+        ).value.trim();
+
+    let START_DATE =
+        document.getElementById(
+            "stockStartDate"
+        ).value;
+
+    let END_DATE =
+        document.getElementById(
+            "stockEndDate"
+        ).value;
+
+    if(!targetStock){
+
+        alert("請輸入股票");
+
+        return;
+    }
+
+    if(!START_DATE || !END_DATE){
+
+        alert("請輸入日期");
+
+        return;
+    }
+
+    const today =
+        new Date().toISOString().split("T")[0];
+
+    START_DATE =
+        START_DATE > today
+        ? today
+        : START_DATE;
+
+    END_DATE =
+        END_DATE > today
+        ? today
+        : END_DATE;
+
+    if(START_DATE > END_DATE){
+
+        alert(
+            "結束日期不能早於起始日期"
+        );
+
+        return;
+    }
+
+    document.getElementById(
+        "loading"
+    ).innerText = "查詢中...";
+
+    let stockData = {};
+
+    let stockCode = "";
+
+    let stockName = "";
+
+
+
+
+
+    for(
+        const [FID, ETF_NAME]
+        of Object.entries(ETF_LIST)
+    ){
+
+        stockData[ETF_NAME] = {};
+
+        let current =
+            new Date(START_DATE);
+
+        const end =
+            new Date(END_DATE);
+
+
+
+
+
+
+        while(current <= end){
+
+            const dateStr =
+                current
+                .toISOString()
+                .split("T")[0];
+
+            document.getElementById(
+                "loading"
+            ).innerText =
+                `查詢中:
+                 ${ETF_NAME}
+                 ${dateStr}`;
+
+            let lots = 0;
+
+
+
+
+
+
+            try{
+
+                const payload = {
+
+                    FID:FID,
+
+                    StartDate:
+                        dateStr +
+                        "T00:00:00.000Z",
+
+                    token:TOKEN
+                };
+
+                const response =
+                    await fetch(URL,{
+
+                        method:"POST",
+
+                        headers:{
+                            "Content-Type":
+                            "application/json"
+                        },
+
+                        body:
+                            JSON.stringify(
+                                payload
+                            )
+                    });
+
+                if(response.ok){
+
+                    const result =
+                        await response.json();
+
+                    const sections =
+                        result.Data
+                        .FundAssetsDetail;
+
+
+
+
+
+
+
+                    let stockSection =
+                        null;
+
+                    for(
+                        const item
+                        of sections
+                    ){
+
+                        if(
+                            item.Code
+                            === "STOCK"
+                        ){
+
+                            stockSection =
+                                item;
+
+                            break;
+                        }
+                    }
+
+
+
+
+
+
+
+                    if(stockSection){
+
+                        for(
+                            const stock
+                            of stockSection.Data
+                        ){
+
+                            if(
+
+                                stock.name_
+                                === targetStock
+
+                                ||
+
+                                stock.code_
+                                === targetStock
+
+                            ){
+
+                                stockCode =
+                                    stock.code_;
+
+                                stockName =
+                                    stock.name_;
+
+                                const qty =
+                                    parseFloat(
+                                        stock.qty_
+                                        .replace(
+                                            /,/g,
+                                            ""
+                                        )
+                                    );
+
+                                lots =
+                                    +(qty/1000)
+                                    .toFixed(2);
+
+                                break;
+                            }
+                        }
+                    }
+                }
+
+            }catch(err){
+
+                console.log(err);
+            }
+
+
+
+
+
+
+            stockData
+            [ETF_NAME]
+            [dateStr]
+            = lots;
+
+            const sleep =
+                Math.random()*400
+                + 200;
+
+            await new Promise(
+                r=>setTimeout(
+                    r,
+                    sleep
+                )
+            );
+
+            current.setDate(
+                current.getDate()+1
+            );
+        }
+    }
+
+
+
+
+    buildStockTable(
+
+        stockData,
+
+        stockCode,
+
+        stockName
+
+    );
+
+    document.getElementById(
+        "loading"
+    ).innerText = "完成";
+}
+
+
+
+
+
+
+
+function buildStockTable(
+
+    stockData,
+
+    stockCode,
+
+    stockName
+
+){
+
+    const etfs =
+        Object.keys(stockData);
+
+    if(etfs.length === 0){
+
+        alert("查無資料");
+
+        return;
+    }
+
+    const dates =
+        Object.keys(
+            stockData[etfs[0]]
+        );
+
+    let html = "";
+
+    html += "<tr>";
+
+    html += "<th>ETF</th>";
+
+    for(const d of dates){
+
+        html += `<th>${d}</th>`;
+    }
+
+    html += "<th>增減張數</th>";
+
+    html += "</tr>";
+
+
+
+
+    for(const etf of etfs){
+
+        html += `<tr><td>${etf}</td>`;
+
+        const first =
+            stockData[etf]
+            [dates[0]] || 0;
+
+        const last =
+            stockData[etf]
+            [dates[
+                dates.length-1
+            ]] || 0;
+
+
+
+
+        for(const d of dates){
+
+            const val =
+                stockData[etf][d]
+                || 0;
+
+            html += `<td>${val}</td>`;
+        }
+
+
+
+        const diff =
+            +(last-first)
+            .toFixed(2);
+
+        html +=
+            `<td>${diff}</td>`;
+
+        html += "</tr>";
+    }
+
+
+
+
+    currentTableHTML = html;
+
+    document.getElementById(
+        "resultTable"
+    ).innerHTML = html;
+
+
+
+    document.getElementById(
+        "etfInfo"
+    ).innerHTML = `
+
+        <b>股票代號：</b>
+        ${stockCode}<br>
+
+        <b>股票名稱：</b>
+        ${stockName}
+
+    `;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function exportExcel(){
+
+    const table =
+        document.getElementById("resultTable");
+
+    const workbook =
+        XLSX.utils.table_to_book(table);
+
+    XLSX.writeFile(workbook,"CTBC_ETF.xlsx");
+}
+
+</script>
+
+</body>
+
+</html>
+```
